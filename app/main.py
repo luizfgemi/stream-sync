@@ -8,7 +8,7 @@ import threading
 import time
 from collections import defaultdict
 
-from .cache_sqlite import SQLiteCache
+from .database import SQLiteCache
 from .config import Config
 from .justwatch_provider import JustWatchProvider
 from .log import setup_logging

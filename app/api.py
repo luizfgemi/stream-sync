@@ -5,7 +5,7 @@ from typing import Any
 
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, status as http_status
 
-from .cache_sqlite import SQLiteCache
+from .database import SQLiteCache
 from .config import (
     API_CONFIG_FIELDS,
     READ_ONLY_CONFIG_FIELDS,

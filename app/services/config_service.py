@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..cache_sqlite import SQLiteCache
+from ..database import SQLiteCache
 from ..config import (
     API_CONFIG_FIELDS,
     READ_ONLY_CONFIG_FIELDS,

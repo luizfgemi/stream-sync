@@ -10,7 +10,7 @@ from typing import Any
 import requests
 from simplejustwatchapi.justwatch import offers_for_countries, search
 
-from .cache_sqlite import SQLiteCache
+from .database import SQLiteCache
 from .types import JwLookupResult, JwService, LookupStatus, MovieState
 
 

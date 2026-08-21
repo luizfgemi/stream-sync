@@ -19,7 +19,7 @@ except ModuleNotFoundError:
     raise unittest.SkipTest("fastapi is not installed in the local Python environment")
 
 from app.api import create_app
-from app.cache_sqlite import SQLiteCache
+from app.database import SQLiteCache
 from app.config import Config
 from app.types import MovieState, TagState
 

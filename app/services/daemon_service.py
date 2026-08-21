@@ -5,7 +5,7 @@ import threading
 import time
 from dataclasses import dataclass
 
-from ..cache_sqlite import SQLiteCache
+from ..database import SQLiteCache
 from ..config import Config
 from ..justwatch_provider import JustWatchProvider
 from ..notifier import build_notifier
