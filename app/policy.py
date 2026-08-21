@@ -52,50 +52,7 @@ def is_recent_theatrical_release(
     return cinema_date >= cutoff_date
 
 
-def evaluate_movie_policy(
-    movie: MovieState,
-    lookup_result: JwLookupResult,
-    grace_months: int = 0,
-    seerr_protection: list[SeerrProtection] | None = None,
-    search_cooldown_passed: bool = True,
-) -> MovieDecision:
-    """Evaluate business policy rules for a movie and return decision structure."""
-    if movie.has_tag("favorite"):
-        return MovieDecision(
-            skip=True,
-            reason="Favorite tag active",
-            target_monitored=True,
-            desired_streaming_labels=[],
-            trigger_search=not movie.monitored and not movie.has_file and search_cooldown_passed,
-            search_reason="favorite_unmonitored" if not movie.monitored and not movie.has_file else None,
-        )
 
-    if seerr_protection:
-        source_labels = sorted(list({p.source for p in seerr_protection}))
-        return MovieDecision(
-            skip=True,
-            reason=f"Protected by Seerr/Watchlist ({', '.join(source_labels)})",
-            target_monitored=True,
-            desired_streaming_labels=[],
-            trigger_search=not movie.monitored and not movie.has_file and search_cooldown_passed,
-            search_reason="seerr_protected_unmonitored" if not movie.monitored and not movie.has_file else None,
-        )
-
-    if is_recent_theatrical_release(movie.in_cinemas, grace_months):
-        return MovieDecision(
-            skip=True,
-            reason=f"Recent theatrical release (released {movie.in_cinemas})",
-            target_monitored=True,
-            desired_streaming_labels=[],
-            trigger_search=not movie.monitored and not movie.has_file and search_cooldown_passed,
-            search_reason="recent_release_unmonitored" if not movie.monitored and not movie.has_file else None,
-        )
-
-    if lookup_result.status in (LookupStatus.UNKNOWN, LookupStatus.SCHEMA_ERROR):
-        return MovieDecision(
-            skip=True,
-            reason=f"JustWatch lookup error: {lookup_result.error_message}",
-        )
 
 STREAMING_TAG_PREFIX = "streaming_"
 STREAMING_TAG_PREFIX_SAFE = "streaming-"

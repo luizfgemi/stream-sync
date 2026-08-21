@@ -9,7 +9,8 @@ from unittest.mock import MagicMock
 from app.database import SQLiteCache
 from app.log import setup_logging
 from app.notifier import StdoutNotifier, TelegramNotifier
-from app.schemas import JwService, MovieState
+from app.schemas import JwLookupResult, JwService, LookupStatus, MovieState, TagState
+from app.policy import evaluate_movie_policy
 from app.seerr_client import SeerrClient
 from app.snapshot import movie_snapshot_payload
 
@@ -69,11 +70,6 @@ class FindingsFixesTests(unittest.TestCase):
         self.assertTrue(any("entered Netflix" in line for line in logs.output))
         self.assertTrue(any("left Prime Video" in line for line in logs.output))
 
-
-if __name__ == "__main__":
-    unittest.main()
-
-
     def test_never_in_streaming_unmonitored_outside_whitelist_search_reason(self) -> None:
         movie = MovieState(movie_id=1, title="Test", path="/path", monitored=False, has_file=False, tags=[])
         jw_result = JwLookupResult(status=LookupStatus.UNAVAILABLE, services=[])
@@ -94,3 +90,7 @@ if __name__ == "__main__":
         decision = evaluate_movie_policy(movie, jw_result)
         self.assertEqual(decision.leaving_service_ids, ["primevideo_withads"])
         self.assertEqual(decision.search_reason, "left_streaming")
+
+
+if __name__ == "__main__":
+    unittest.main()
