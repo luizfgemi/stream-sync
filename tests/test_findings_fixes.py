@@ -51,8 +51,10 @@ class FindingsFixesTests(unittest.TestCase):
         cache.upsert_movie_snapshots([payload])
         snapshot = cache.get_movie_snapshot(1)
         self.assertIsNotNone(snapshot)
-        self.assertEqual(snapshot.payload["deletionState"]["lastStatus"], "scheduled")
-        self.assertEqual(snapshot.payload["streamingServices"][0]["service_id"], "netflix")
+        self.assertEqual(snapshot.payload["deletionState"]["status"], "scheduled")
+        self.assertEqual(snapshot.payload["deletionState"]["remainingSeconds"], 77)
+        self.assertEqual(snapshot.payload["streamingServices"][0]["id"], "netflix")
+        self.assertEqual(snapshot.payload["streamingServices"][0]["name"], "Netflix")
 
     def test_seerr_client_methods_exist(self) -> None:
         client = SeerrClient("http://localhost:5055", "api-key")

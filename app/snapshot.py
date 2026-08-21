@@ -7,62 +7,88 @@ from typing import Any
 from app.schemas import MovieState
 
 
+def deletion_state_payload(
+    deletion_state: Any | None,
+    now_ts: int,
+) -> dict[str, Any] | None:
+    """Format DeletionStateRow into API-compliant payload dictionary."""
+    if deletion_state is None:
+        return None
+
+    status = (
+        getattr(deletion_state, "last_status", None)
+        or getattr(deletion_state, "status", None)
+        or (deletion_state.get("last_status") if isinstance(deletion_state, dict) else None)
+        or (deletion_state.get("status") if isinstance(deletion_state, dict) else "scheduled")
+    )
+    scheduled_at = (
+        getattr(deletion_state, "scheduled_at", None)
+        or getattr(deletion_state, "scheduledAt", None)
+        or (deletion_state.get("scheduled_at") if isinstance(deletion_state, dict) else None)
+        or (deletion_state.get("scheduledAt") if isinstance(deletion_state, dict) else 0)
+    )
+    delete_after_ts = (
+        getattr(deletion_state, "delete_after_ts", None)
+        or getattr(deletion_state, "deleteAfterTs", None)
+        or (deletion_state.get("delete_after_ts") if isinstance(deletion_state, dict) else None)
+        or (deletion_state.get("deleteAfterTs") if isinstance(deletion_state, dict) else 0)
+    )
+    updated_at = (
+        getattr(deletion_state, "updated_at", None)
+        or getattr(deletion_state, "updatedAt", None)
+        or (deletion_state.get("updated_at") if isinstance(deletion_state, dict) else None)
+        or (deletion_state.get("updatedAt") if isinstance(deletion_state, dict) else 0)
+    )
+
+    remaining_seconds = max(0, delete_after_ts - now_ts) if status == "scheduled" else 0
+
+    return {
+        "status": status,
+        "scheduledAt": scheduled_at,
+        "deleteAfterTs": delete_after_ts,
+        "updatedAt": updated_at,
+        "remainingSeconds": remaining_seconds,
+    }
+
+
 def movie_snapshot_payload(
     movie: MovieState,
     conditions: list[str],
     last_evaluated_at: int,
-    deletion_state: dict[str, Any] | None = None,
-    streaming_services: list[dict[str, Any]] | None = None,
-    protection: list[dict[str, Any]] | None = None,
+    deletion_state: Any | None = None,
+    streaming_services: list[Any] | None = None,
+    protection: list[Any] | None = None,
     **_kwargs: Any,
 ) -> dict[str, Any]:
-    """Format movie state and active conditions into snapshot payload dictionary."""
-    deletion_payload: dict[str, Any] | None = None
-    if deletion_state is not None:
-        if hasattr(deletion_state, "model_dump"):
-            deletion_payload = deletion_state.model_dump()
-        elif hasattr(deletion_state, "_asdict"):
-            deletion_payload = deletion_state._asdict()
-        elif isinstance(deletion_state, dict):
-            deletion_payload = deletion_state
-        else:
-            deletion_payload = {
-                "radarrId": getattr(deletion_state, "radarr_id", getattr(deletion_state, "radarrId", None)),
-                "moviePath": getattr(deletion_state, "movie_path", getattr(deletion_state, "moviePath", None)),
-                "scheduledAt": getattr(deletion_state, "scheduled_at", getattr(deletion_state, "scheduledAt", None)),
-                "deleteAfterTs": getattr(deletion_state, "delete_after_ts", getattr(deletion_state, "deleteAfterTs", None)),
-                "lastStatus": getattr(deletion_state, "last_status", getattr(deletion_state, "lastStatus", None)),
-                "updatedAt": getattr(deletion_state, "updated_at", getattr(deletion_state, "updatedAt", None)),
-            }
-
+    """Format movie state and active conditions into API-compliant snapshot payload dictionary."""
     formatted_streaming: list[dict[str, Any]] = []
     for svc in (streaming_services or []):
-        if hasattr(svc, "model_dump"):
-            formatted_streaming.append(svc.model_dump())
-        elif hasattr(svc, "_asdict"):
-            formatted_streaming.append(svc._asdict())
-        elif isinstance(svc, dict):
-            formatted_streaming.append(svc)
-        else:
-            formatted_streaming.append({
-                "service_id": getattr(svc, "service_id", getattr(svc, "serviceId", "")),
-                "service_name": getattr(svc, "service_name", getattr(svc, "serviceName", "")),
-            })
+        service_id = (
+            getattr(svc, "service_id", None)
+            or getattr(svc, "id", None)
+            or (svc.get("service_id") if isinstance(svc, dict) else None)
+            or (svc.get("id") if isinstance(svc, dict) else "")
+        )
+        service_name = (
+            getattr(svc, "service_name", None)
+            or getattr(svc, "name", None)
+            or (svc.get("service_name") if isinstance(svc, dict) else None)
+            or (svc.get("name") if isinstance(svc, dict) else "")
+        )
+        formatted_streaming.append({"id": service_id, "name": service_name})
 
     return {
         "radarrId": movie.movie_id,
         "tmdbId": movie.tmdb_id,
         "title": movie.title,
         "year": movie.year,
-        "path": movie.path,
-        "monitored": movie.monitored,
         "hasFile": movie.has_file,
-        "status": movie.status,
-        "inCinemas": movie.in_cinemas,
+        "monitored": movie.monitored,
+        "path": movie.path,
         "tags": [tag.label if hasattr(tag, "label") else str(tag) for tag in movie.tags],
-        "conditions": conditions,
+        "conditions": sorted(set(conditions)),
         "lastEvaluatedAt": last_evaluated_at,
-        "deletionState": deletion_payload,
+        "deletionState": deletion_state_payload(deletion_state, last_evaluated_at),
         "streamingServices": formatted_streaming,
         "protection": [
             item.model_dump() if hasattr(item, "model_dump")

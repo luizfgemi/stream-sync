@@ -101,13 +101,13 @@ def evaluate_movie_policy(
     is_available = lookup_result.status == LookupStatus.AVAILABLE
 
     if is_available:
-        desired_labels = sorted([f"streaming-{svc.service_id}" for svc in lookup_result.services])
+        desired_labels = sorted([f"streaming-{svc.service_id.replace('_', '-')}" for svc in lookup_result.services])
         entering_services = [
             svc for svc in lookup_result.services
-            if f"streaming-{svc.service_id}" not in current_streaming_labels
+            if f"streaming-{svc.service_id.replace('_', '-')}" not in current_streaming_labels
         ]
-        current_svc_ids = {label.replace("streaming-", "").replace("streaming_", "") for label in current_streaming_labels}
-        new_svc_ids = {svc.service_id for svc in lookup_result.services}
+        current_svc_ids = {label.replace("streaming-", "").replace("streaming_", "").replace("_", "-") for label in current_streaming_labels}
+        new_svc_ids = {svc.service_id.replace("_", "-") for svc in lookup_result.services}
         leaving_svc_ids = sorted(list(current_svc_ids - new_svc_ids))
 
         should_update = (current_streaming_labels != desired_labels) or movie.monitored
@@ -122,7 +122,7 @@ def evaluate_movie_policy(
         )
 
     # Unavailable on allowed streaming
-    current_svc_ids = {label.replace("streaming-", "").replace("streaming_", "") for label in current_streaming_labels}
+    current_svc_ids = {label.replace("streaming-", "").replace("streaming_", "").replace("_", "-") for label in current_streaming_labels}
     should_update = bool(current_streaming_labels) or not movie.monitored
     trigger_search = (not movie.monitored or not current_streaming_labels) and not movie.has_file and search_cooldown_passed
 
@@ -133,7 +133,7 @@ def evaluate_movie_policy(
         desired_streaming_labels=[],
         target_monitored=True,
         trigger_search=trigger_search,
-        search_reason="left_streaming_unmonitored" if trigger_search else None,
+        search_reason="left_streaming" if trigger_search else None,
         leaving_service_ids=sorted(list(current_svc_ids)),
     )
 
