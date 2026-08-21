@@ -1,0 +1,49 @@
+services:
+  stream-sync:
+    build:
+      context: ${BASE_PATH}/stream-sync-repo
+    container_name: stream-sync
+    environment:
+      - TZ=${TZ}
+      - RADARR_URL=${RADARR_URL}
+      - RADARR_API_KEY=${RADARR_API_KEY}
+      - SEERR_ENABLED=true
+      - SEERR_URL=${SEERR_URL}
+      - SEERR_API_KEY=${SEERR_API_KEY}
+      - API_ENABLED=true
+      - API_HOST=0.0.0.0
+      - API_PORT=8099
+      - STREAM_SYNC_API_KEY=${STREAM_SYNC_API_KEY}
+      - MODE=daemon
+      - REMOVE_MODE=delete
+      - DELETE_AFTER_DAYS=30
+      - THEATRICAL_RELEASE_GRACE_MONTHS=0
+      - JW_ALLOWED_SERVICES=netflix,amazonprimevideo,max
+      - JW_COUNTRY=BR
+      - RUN_INTERVAL_HOURS=24
+      - JW_REQUEST_DELAY_SECONDS=2
+      - JW_REQUEST_DELAY_JITTER_SECONDS=1
+      - SEARCH_COOLDOWN_HOURS=24
+      - RADARR_INIT_MAX_RETRIES=30
+      - RADARR_INIT_RETRY_SECONDS=5
+      - RUN_ONCE=false
+      - DRY_RUN=false
+      - OFFERS_TTL_OK_DAYS=5
+      - OFFERS_TTL_ERR_HOURS=12
+      - IDMAP_TTL_DAYS=1
+      - TTL_JITTER_PERCENT=20
+      - NOTIFY_MODE=${STREAM_SYNC_NOTIFY_MODE:-stdout}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}
+      - LOG_DIR=/app/data/logs
+      - JW_ONLY_SUBSCRIPTION=true
+    volumes:
+      - ${BASE_PATH}/stream-sync/data:/app/data
+      - ${MOVIES}:/movies
+    ports:
+      - 8099:8099
+    depends_on:
+      radarr:
+        condition: service_healthy
+    restart: unless-stopped
+    stop_grace_period: 2m
