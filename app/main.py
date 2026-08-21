@@ -1439,7 +1439,7 @@ def _start_api_server(
             app,
             host=config.api_host,
             port=config.api_port,
-            log_level="info",
+            log_config=None,
         )
 
     thread = threading.Thread(target=_run, name="stream-sync-api", daemon=True)
