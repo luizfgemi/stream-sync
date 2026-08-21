@@ -83,6 +83,37 @@ class Notifier(ABC):
         pass
 
 
+def _join_titles(titles: list[str], max_len: int = 256) -> str:
+    joined = ", ".join(titles)
+    if len(joined) > max_len:
+        return f"{joined[: max_len - 3]}..."
+    return joined
+
+
+def _iter_grouped_lines(
+    event: str, grouped_movies_by_service: dict[str, list[str]]
+) -> list[str]:
+    lines: list[str] = []
+    for service in sorted(grouped_movies_by_service.keys(), key=str.lower):
+        movie_titles = sorted(set(grouped_movies_by_service[service]), key=str.lower)
+        count = len(movie_titles)
+        titles_text = _join_titles(movie_titles)
+        noun = "movie" if count == 1 else "movies"
+        if event == "streaming_entered":
+            lines.append(
+                f"Streaming update: {count} {noun} entered {service}: {titles_text}."
+            )
+        elif event == "streaming_left":
+            lines.append(
+                f"Streaming update: {count} {noun} left {service}: {titles_text}."
+            )
+        else:
+            lines.append(
+                f"Streaming update: {count} {noun} changed on {service}: {titles_text}."
+            )
+    return lines
+
+
 class StdoutNotifier(Notifier):
     """Fallback notifier logging to standard output."""
 
@@ -90,10 +121,16 @@ class StdoutNotifier(Notifier):
         self._logger = logging.getLogger("app.notifier")
 
     def notify_entering(self, grouped_movies_by_service: dict[str, list[str]]) -> None:
-        pass
+        if not grouped_movies_by_service:
+            return
+        for line in _iter_grouped_lines("streaming_entered", grouped_movies_by_service):
+            self._logger.info(line)
 
     def notify_leaving(self, grouped_movies_by_service: dict[str, list[str]]) -> None:
-        pass
+        if not grouped_movies_by_service:
+            return
+        for line in _iter_grouped_lines("streaming_left", grouped_movies_by_service):
+            self._logger.info(line)
 
     def notify_error(self, message: str) -> None:
         self._logger.warning(_normalize_message(message))
@@ -161,10 +198,16 @@ class TelegramNotifier(Notifier):
         self._send(line)
 
     def notify_entering(self, grouped_movies_by_service: dict[str, list[str]]) -> None:
-        pass
+        if not grouped_movies_by_service:
+            return
+        for line in _iter_grouped_lines("streaming_entered", grouped_movies_by_service):
+            self._emit(line)
 
     def notify_leaving(self, grouped_movies_by_service: dict[str, list[str]]) -> None:
-        pass
+        if not grouped_movies_by_service:
+            return
+        for line in _iter_grouped_lines("streaming_left", grouped_movies_by_service):
+            self._emit(line)
 
     def notify_error(self, message: str) -> None:
         self._emit(message)
