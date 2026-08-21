@@ -708,7 +708,7 @@ def _run_cycle(
                 snapshot_rows.append(
                     movie_snapshot_payload(
                         movie,
-                        [item.source for item in movie_protection],
+                        sorted(list({item.source for item in movie_protection})),
                         int(time.time()),
                         deletion_state=cache.get_deletion_state(movie.movie_id),
                         protection=movie_protection,

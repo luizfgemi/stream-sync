@@ -1,51 +1,41 @@
+"""Movie snapshot serialization helpers."""
+
 from __future__ import annotations
 
-from .types import DeletionStateRow, JwService, MovieState, SeerrProtection
-
-
-def deletion_state_payload(
-    deletion_state: DeletionStateRow | None,
-    now_ts: int,
-) -> dict[str, object] | None:
-    if deletion_state is None:
-        return None
-    return {
-        "status": deletion_state.last_status,
-        "scheduledAt": deletion_state.scheduled_at,
-        "deleteAfterTs": deletion_state.delete_after_ts,
-        "updatedAt": deletion_state.updated_at,
-        "remainingSeconds": max(0, deletion_state.delete_after_ts - now_ts)
-        if deletion_state.last_status == "scheduled"
-        else 0,
-    }
+import calendar
+from typing import Any
+from app.schemas import MovieState
 
 
 def movie_snapshot_payload(
     movie: MovieState,
     conditions: list[str],
     last_evaluated_at: int,
-    streaming_services: list[JwService] | None = None,
-    deletion_state: DeletionStateRow | None = None,
-    protection: list[SeerrProtection] | None = None,
-) -> dict[str, object]:
+    deletion_state: dict[str, Any] | None = None,
+    streaming_services: list[dict[str, Any]] | None = None,
+    protection: list[dict[str, Any]] | None = None,
+    **_kwargs: Any,
+) -> dict[str, Any]:
+    """Format movie state and active conditions into snapshot payload dictionary."""
     return {
         "radarrId": movie.movie_id,
         "tmdbId": movie.tmdb_id,
         "title": movie.title,
         "year": movie.year,
-        "hasFile": movie.has_file,
-        "monitored": movie.monitored,
         "path": movie.path,
-        "tags": movie.tag_labels,
-        "streamingServices": [
-            {"id": service.service_id, "name": service.service_name}
-            for service in (streaming_services or [])
-        ],
-        "conditions": sorted(set(conditions)),
-        "deletionState": deletion_state_payload(deletion_state, last_evaluated_at),
+        "monitored": movie.monitored,
+        "hasFile": movie.has_file,
+        "status": movie.status,
+        "inCinemas": movie.in_cinemas,
+        "tags": [tag.label if hasattr(tag, "label") else str(tag) for tag in movie.tags],
+        "conditions": conditions,
+        "lastEvaluatedAt": last_evaluated_at,
+        "deletionState": deletion_state,
+        "streamingServices": streaming_services or [],
         "protection": [
-            {"source": item.source, "user": item.user}
+            item.model_dump() if hasattr(item, "model_dump")
+            else (item._asdict() if hasattr(item, "_asdict")
+            else {"source": getattr(item, "source", ""), "user": getattr(item, "user", None)})
             for item in (protection or [])
         ],
-        "lastEvaluatedAt": last_evaluated_at,
     }
