@@ -1,3 +1,5 @@
+"""Seerr client integration for request and watchlist protection."""
+
 from __future__ import annotations
 
 import json
@@ -7,34 +9,44 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from .types import SeerrProtection
+from app.schemas import SeerrProtection
 
 
 class SeerrClient:
+    """Client for querying Seerr requests and protected items."""
+
     REQUEST_FILTERS = ("pending", "approved", "available")
 
     def __init__(self, base_url: str, api_key: str, timeout_seconds: float = 20.0) -> None:
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
         self._timeout_seconds = timeout_seconds
-        self._logger = logging.getLogger("app.seerr")
+        self._logger = logging.getLogger("stream-sync.seerr")
 
     def protected_movie_tmdb_ids(self) -> set[int]:
+        """Fetch set of TMDB IDs protected by Seerr requests or watchlists."""
         protected_ids = set(self.protected_movie_details().keys())
         self._logger.info("Seerr protection loaded: movies=%s", len(protected_ids))
         return protected_ids
 
     def protected_movie_details(self) -> dict[int, list[SeerrProtection]]:
+        """Fetch details dictionary mapping protected TMDB IDs to protection records."""
         protected: dict[int, list[SeerrProtection]] = {}
         self._merge_protection(protected, self._request_movie_protections())
+        self._merge_protection(protected, self._watchlist_movie_protections())
         self._logger.info("Seerr protection loaded: movies=%s", len(protected))
         return protected
+
+    def fetch_protected_tmdb_ids(self) -> dict[int, list[SeerrProtection]]:
+        """Alias for protected_movie_details for compatibility."""
+        return self.protected_movie_details()
 
     @staticmethod
     def _merge_protection(
         target: dict[int, list[SeerrProtection]],
         source: dict[int, list[SeerrProtection]],
     ) -> None:
+        """Merge protection items into target dict without duplicates."""
         for tmdb_id, protections in source.items():
             existing = target.setdefault(tmdb_id, [])
             existing_keys = {(item.source, item.user) for item in existing}
@@ -46,6 +58,7 @@ class SeerrClient:
                 existing_keys.add(key)
 
     def _get_json(self, path: str, params: dict[str, object] | None = None) -> dict[str, Any]:
+        """Execute GET request to Seerr REST API."""
         url = f"{self._base_url}/api/v1{path}"
         if params:
             url = f"{url}?{urlencode(params)}"
@@ -75,6 +88,7 @@ class SeerrClient:
 
     @staticmethod
     def _results(data: dict[str, Any]) -> list[dict[str, Any]]:
+        """Extract results list from paginated Seerr API response."""
         results = data.get("results")
         if not isinstance(results, list):
             return []
@@ -82,6 +96,7 @@ class SeerrClient:
 
     @staticmethod
     def _page_count(data: dict[str, Any], default: int = 1) -> int:
+        """Extract total page count from Seerr API response."""
         page_info = data.get("pageInfo")
         if isinstance(page_info, dict):
             pages = page_info.get("pages")
@@ -94,6 +109,7 @@ class SeerrClient:
 
     @staticmethod
     def _tmdb_id(value: object) -> int | None:
+        """Parse positive TMDB ID integer value."""
         try:
             tmdb_id = int(value)  # type: ignore[arg-type]
         except (TypeError, ValueError):
@@ -102,6 +118,7 @@ class SeerrClient:
 
     @staticmethod
     def _user_label(user: object) -> str | None:
+        """Extract user display label from user object dictionary."""
         if not isinstance(user, dict):
             return None
         for key in ("displayName", "username", "plexUsername", "email"):
@@ -111,6 +128,7 @@ class SeerrClient:
         return None
 
     def _request_movie_protections(self) -> dict[int, list[SeerrProtection]]:
+        """Fetch movie protections originating from Seerr requests."""
         movie_ids: dict[int, list[SeerrProtection]] = {}
         page_size = 100
         for request_filter in self.REQUEST_FILTERS:
@@ -142,27 +160,8 @@ class SeerrClient:
                 page += 1
         return movie_ids
 
-    def _request_movie_tmdb_ids(self) -> set[int]:
-        return set(self._request_movie_protections().keys())
-
-    def _user_ids(self) -> list[int]:
-        user_ids: list[int] = []
-        page_size = 100
-        page = 1
-        while True:
-            skip = (page - 1) * page_size
-            data = self._get_json("/user", {"take": page_size, "skip": skip})
-            for item in self._results(data):
-                user_id = self._tmdb_id(item.get("id"))
-                if user_id is not None:
-                    user_ids.append(user_id)
-
-            if page >= self._page_count(data):
-                break
-            page += 1
-        return user_ids
-
     def _users(self) -> list[dict[str, Any]]:
+        """Fetch all Seerr user accounts."""
         users: list[dict[str, Any]] = []
         page_size = 100
         page = 1
@@ -176,6 +175,7 @@ class SeerrClient:
         return users
 
     def _watchlist_movie_protections(self) -> dict[int, list[SeerrProtection]]:
+        """Fetch movie protections originating from user Plex watchlists in Seerr."""
         movie_ids: dict[int, list[SeerrProtection]] = {}
         for user in self._users():
             user_id = self._tmdb_id(user.get("id"))
@@ -198,6 +198,3 @@ class SeerrClient:
                     break
                 page += 1
         return movie_ids
-
-    def _watchlist_movie_tmdb_ids(self) -> set[int]:
-        return set(self._watchlist_movie_protections().keys())

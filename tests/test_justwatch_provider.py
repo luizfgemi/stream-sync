@@ -11,7 +11,7 @@ justwatch_stub.search = lambda *args, **kwargs: []
 sys.modules.setdefault("simplejustwatchapi", justwatch_package_stub)
 sys.modules.setdefault("simplejustwatchapi.justwatch", justwatch_stub)
 
-from app.justwatch_provider import JustWatchProvider
+from app.justwatch import JustWatchProvider
 from app.types import LookupStatus, MovieState
 
 

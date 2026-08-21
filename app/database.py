@@ -1,3 +1,9 @@
+"""SQLite persistence layer for stream-sync.
+
+Manages caching for JustWatch node mapping, streaming offers, deletion queues,
+movie snapshots, and daemon runtime events in SQLite (WAL mode).
+"""
+
 from __future__ import annotations
 
 import json
@@ -8,12 +14,13 @@ import threading
 import time
 from typing import Any
 
-from .types import CachedOffersEntry, DeletionStateRow, MovieSnapshot
+from app.schemas import CachedOffersEntry, DeletionStateRow, MovieSnapshot
 
 RUNTIME_EVENT_LIMIT = 100
 
 
 def _daemon_status_defaults() -> dict[str, Any]:
+    """Return default dictionary structure for daemon runtime status."""
     return {
         "state": "starting",
         "cycleStartedAt": None,
@@ -45,6 +52,19 @@ def _daemon_status_defaults() -> dict[str, Any]:
 
 
 class SQLiteCache:
+    """Thread-safe SQLite database manager for stream-sync state & cache.
+
+    Handles WAL-mode connections, table migrations, TTL invalidation with jitter,
+    movie snapshot storage, deletion scheduling, and runtime daemon status updates.
+
+    Args:
+        db_path: Path to the SQLite database file.
+        idmap_ttl_seconds: Base TTL for TMDB -> JustWatch node ID mapping.
+        offers_ttl_ok_seconds: Base TTL for successful JustWatch offer lookups.
+        offers_ttl_err_seconds: Base TTL for failed JustWatch offer lookups.
+        ttl_jitter_percent: Percentage jitter applied to TTL bounds.
+    """
+
     def __init__(
         self,
         db_path: str,
@@ -71,6 +91,7 @@ class SQLiteCache:
         self._create_tables()
 
     def _create_tables(self) -> None:
+        """Create necessary database tables and indexes if they do not exist."""
         with self._conn:
             self._conn.execute(
                 """
@@ -149,30 +170,20 @@ class SQLiteCache:
                 )
                 """
             )
-            self._conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_jw_id_map_expires ON jw_id_map(expires_at)"
-            )
-            self._conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_jw_offers_expires ON jw_offers_cache(expires_at)"
-            )
-            self._conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_deletion_delete_after ON deletion_state(delete_after_ts)"
-            )
-            self._conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_movie_snapshot_title ON movie_snapshot(title)"
-            )
-            self._conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_movie_snapshot_tmdb ON movie_snapshot(tmdb_id)"
-            )
-            self._conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_runtime_event_created ON runtime_event(created_at)"
-            )
+            self._conn.execute("CREATE INDEX IF NOT EXISTS idx_jw_id_map_expires ON jw_id_map(expires_at)")
+            self._conn.execute("CREATE INDEX IF NOT EXISTS idx_jw_offers_expires ON jw_offers_cache(expires_at)")
+            self._conn.execute("CREATE INDEX IF NOT EXISTS idx_deletion_delete_after ON deletion_state(delete_after_ts)")
+            self._conn.execute("CREATE INDEX IF NOT EXISTS idx_movie_snapshot_title ON movie_snapshot(title)")
+            self._conn.execute("CREATE INDEX IF NOT EXISTS idx_movie_snapshot_tmdb ON movie_snapshot(tmdb_id)")
+            self._conn.execute("CREATE INDEX IF NOT EXISTS idx_runtime_event_created ON runtime_event(created_at)")
 
     @staticmethod
     def _now_ts() -> int:
+        """Return current epoch time in seconds."""
         return int(time.time())
 
     def _with_jitter(self, base_seconds: int) -> int:
+        """Apply configured percentage jitter to a TTL base duration in seconds."""
         if self._ttl_jitter_percent <= 0:
             return max(1, base_seconds)
         pct = self._ttl_jitter_percent / 100.0
@@ -181,6 +192,7 @@ class SQLiteCache:
         return max(1, int(value))
 
     def get_jw_node_id(self, tmdb_id: int) -> str | None:
+        """Retrieve mapped JustWatch GraphQL node ID for a TMDB ID if valid."""
         now = self._now_ts()
         with self._lock, self._conn:
             row = self._conn.execute(
@@ -195,6 +207,7 @@ class SQLiteCache:
             return str(row["jw_node_id"])
 
     def set_jw_node_id(self, tmdb_id: int, jw_node_id: str) -> None:
+        """Persist mapped JustWatch node ID for a TMDB ID with TTL."""
         now = self._now_ts()
         expires_at = now + self._with_jitter(self._idmap_ttl_seconds)
         with self._lock, self._conn:
@@ -211,10 +224,12 @@ class SQLiteCache:
             )
 
     def delete_jw_node_id(self, tmdb_id: int) -> None:
+        """Remove mapped JustWatch node ID for a TMDB ID."""
         with self._lock, self._conn:
             self._conn.execute("DELETE FROM jw_id_map WHERE tmdb_id = ?", (int(tmdb_id),))
 
     def get_offers(self, jw_node_id: str, country: str) -> CachedOffersEntry | None:
+        """Retrieve cached JustWatch offers for a node ID and country code."""
         now = self._now_ts()
         country = country.upper()
         with self._lock, self._conn:
@@ -241,22 +256,17 @@ class SQLiteCache:
 
             payload_json = row["payload_json"]
             if payload_json is None:
-                raise ValueError(
-                    f"Inconsistent cache: missing payload for jw_node_id={jw_node_id}"
-                )
+                raise ValueError(f"Inconsistent cache: missing payload for jw_node_id={jw_node_id}")
             try:
                 payload = json.loads(payload_json)
             except json.JSONDecodeError as exc:
-                raise ValueError(
-                    f"Corrupted cache: invalid payload for jw_node_id={jw_node_id}"
-                ) from exc
+                raise ValueError(f"Corrupted cache: invalid payload for jw_node_id={jw_node_id}") from exc
             if not isinstance(payload, dict):
-                raise ValueError(
-                    f"Invalid cache: payload is not an object for jw_node_id={jw_node_id}"
-                )
+                raise ValueError(f"Invalid cache: payload is not an object for jw_node_id={jw_node_id}")
             return CachedOffersEntry(is_error=False, payload=payload)
 
     def set_offers_ok(self, jw_node_id: str, country: str, payload: dict[str, Any]) -> None:
+        """Persist successful JustWatch offers payload with TTL."""
         now = self._now_ts()
         country = country.upper()
         expires_at = now + self._with_jitter(self._offers_ttl_ok_seconds)
@@ -279,6 +289,7 @@ class SQLiteCache:
             )
 
     def set_offers_error(self, jw_node_id: str, country: str, error_message: str) -> None:
+        """Persist failed JustWatch lookup error result with error TTL."""
         now = self._now_ts()
         country = country.upper()
         expires_at = now + self._with_jitter(self._offers_ttl_err_seconds)
@@ -300,6 +311,7 @@ class SQLiteCache:
             )
 
     def get_cursor(self, key: str, default: int = 0) -> int:
+        """Get integer cursor state value by key."""
         with self._lock:
             row = self._conn.execute(
                 "SELECT value FROM cursor_state WHERE key = ?", (key,)
@@ -309,6 +321,7 @@ class SQLiteCache:
             return int(row["value"])
 
     def set_cursor(self, key: str, value: int) -> None:
+        """Set integer cursor state value by key."""
         now = self._now_ts()
         with self._lock, self._conn:
             self._conn.execute(
@@ -323,34 +336,43 @@ class SQLiteCache:
             )
 
     def delete_cursor(self, key: str) -> None:
+        """Delete cursor state value by key."""
         with self._lock, self._conn:
             self._conn.execute("DELETE FROM cursor_state WHERE key = ?", (key,))
 
     @staticmethod
     def _search_key(movie_id: int) -> str:
+        """Generate cursor key for Radarr search cooldown."""
         return f"search_next_allowed_{int(movie_id)}"
 
     def get_search_next_allowed(self, movie_id: int) -> int:
+        """Get timestamp when next Radarr search is permitted for a movie."""
         return self.get_cursor(self._search_key(movie_id), default=0)
 
     def set_search_next_allowed(self, movie_id: int, epoch_seconds: int) -> None:
+        """Set timestamp when next Radarr search is permitted for a movie."""
         self.set_cursor(self._search_key(movie_id), int(epoch_seconds))
 
     @staticmethod
     def _deletion_countdown_day_key(movie_id: int) -> str:
+        """Generate cursor key for logged deletion countdown date."""
         return f"deletion_countdown_logged_day_{int(movie_id)}"
 
     def get_deletion_countdown_logged_day(self, movie_id: int) -> int:
+        """Get YYYYMMDD integer of last logged deletion countdown reminder."""
         return self.get_cursor(self._deletion_countdown_day_key(movie_id), default=0)
 
     def set_deletion_countdown_logged_day(self, movie_id: int, yyyymmdd: int) -> None:
+        """Set YYYYMMDD integer of last logged deletion countdown reminder."""
         self.set_cursor(self._deletion_countdown_day_key(movie_id), int(yyyymmdd))
 
     def clear_deletion_countdown_logged_day(self, movie_id: int) -> None:
+        """Clear logged deletion countdown date cursor."""
         self.delete_cursor(self._deletion_countdown_day_key(movie_id))
 
     @staticmethod
     def _row_to_deletion_state(row: sqlite3.Row) -> DeletionStateRow:
+        """Convert SQLite row to DeletionStateRow schema DTO."""
         return DeletionStateRow(
             radarr_id=int(row["radarr_id"]),
             movie_path=str(row["movie_path"]),
@@ -361,6 +383,7 @@ class SQLiteCache:
         )
 
     def get_deletion_state(self, radarr_id: int) -> DeletionStateRow | None:
+        """Get deletion state record for a movie ID."""
         with self._lock:
             row = self._conn.execute(
                 """
@@ -384,6 +407,7 @@ class SQLiteCache:
         last_status: str,
         updated_at: int,
     ) -> None:
+        """Upsert deletion state record for a movie."""
         with self._lock, self._conn:
             self._conn.execute(
                 """
@@ -410,6 +434,7 @@ class SQLiteCache:
             )
 
     def delete_deletion_state(self, radarr_id: int) -> None:
+        """Delete deletion state record for a movie ID."""
         with self._lock, self._conn:
             self._conn.execute(
                 "DELETE FROM deletion_state WHERE radarr_id = ?",
@@ -417,6 +442,7 @@ class SQLiteCache:
             )
 
     def list_scheduled_deletions(self) -> list[DeletionStateRow]:
+        """List all active scheduled deletion records."""
         with self._lock:
             rows = self._conn.execute(
                 """
@@ -430,25 +456,21 @@ class SQLiteCache:
             return [self._row_to_deletion_state(row) for row in rows]
 
     def prune_orphan_movie_state(self, valid_movie_ids: set[int]) -> dict[str, int]:
+        """Remove deletion states and cursors for movies no longer in Radarr library."""
         valid_ids = {int(movie_id) for movie_id in valid_movie_ids}
         removed_deletions = 0
         removed_search_cursors = 0
         removed_countdown_cursors = 0
 
         with self._lock, self._conn:
-            deletion_rows = self._conn.execute(
-                "SELECT radarr_id FROM deletion_state"
-            ).fetchall()
+            deletion_rows = self._conn.execute("SELECT radarr_id FROM deletion_state").fetchall()
             orphan_deletion_ids = [
                 int(row["radarr_id"])
                 for row in deletion_rows
                 if int(row["radarr_id"]) not in valid_ids
             ]
             for movie_id in orphan_deletion_ids:
-                self._conn.execute(
-                    "DELETE FROM deletion_state WHERE radarr_id = ?",
-                    (movie_id,),
-                )
+                self._conn.execute("DELETE FROM deletion_state WHERE radarr_id = ?", (movie_id,))
             removed_deletions = len(orphan_deletion_ids)
 
             cursor_rows = self._conn.execute(
@@ -495,6 +517,7 @@ class SQLiteCache:
         updated_at: int,
         delete_after_ts: int | None = None,
     ) -> None:
+        """Update deletion status and deadline timestamp for a movie."""
         with self._lock, self._conn:
             if delete_after_ts is None:
                 self._conn.execute(
@@ -517,6 +540,7 @@ class SQLiteCache:
 
     @staticmethod
     def _row_to_movie_snapshot(row: sqlite3.Row) -> MovieSnapshot:
+        """Convert SQLite row to MovieSnapshot DTO."""
         payload = json.loads(str(row["payload_json"]))
         conditions = json.loads(str(row["conditions_json"]))
         if not isinstance(payload, dict):
@@ -538,6 +562,7 @@ class SQLiteCache:
         snapshots: list[dict[str, Any]],
         valid_movie_ids: set[int] | None = None,
     ) -> None:
+        """Upsert movie snapshot presentation payloads into SQLite."""
         with self._lock, self._conn:
             for snapshot in snapshots:
                 radarr_id = int(snapshot["radarrId"])
@@ -597,6 +622,7 @@ class SQLiteCache:
         condition: str = "",
         sort: str = "title",
     ) -> tuple[list[MovieSnapshot], int]:
+        """List paginated movie snapshots matching search criteria."""
         page = max(1, int(page))
         page_size = min(200, max(1, int(page_size)))
         clauses: list[str] = []
@@ -638,6 +664,7 @@ class SQLiteCache:
             return [self._row_to_movie_snapshot(row) for row in rows], total
 
     def get_movie_snapshot(self, radarr_id: int) -> MovieSnapshot | None:
+        """Retrieve movie snapshot DTO by Radarr ID."""
         with self._lock:
             row = self._conn.execute(
                 """
@@ -653,6 +680,7 @@ class SQLiteCache:
             return self._row_to_movie_snapshot(row)
 
     def set_runtime_state(self, key: str, value: str) -> None:
+        """Persist a key-value string pair in runtime_state table."""
         now = self._now_ts()
         with self._lock, self._conn:
             self._conn.execute(
@@ -667,6 +695,7 @@ class SQLiteCache:
             )
 
     def get_runtime_state(self, key: str) -> str | None:
+        """Retrieve runtime_state string value by key."""
         with self._lock:
             row = self._conn.execute(
                 "SELECT value FROM runtime_state WHERE key = ?",
@@ -677,6 +706,7 @@ class SQLiteCache:
             return str(row["value"])
 
     def _load_daemon_status_locked(self) -> dict[str, Any]:
+        """Load current daemon status payload from DB (caller must hold lock)."""
         status = _daemon_status_defaults()
         row = self._conn.execute(
             "SELECT value FROM runtime_state WHERE key = ?",
@@ -693,6 +723,7 @@ class SQLiteCache:
         return status
 
     def set_daemon_status(self, updates: dict[str, Any]) -> None:
+        """Merge updates into daemon_status runtime state JSON."""
         status = _daemon_status_defaults()
         now = self._now_ts()
         with self._lock, self._conn:
@@ -719,6 +750,7 @@ class SQLiteCache:
         payload: dict[str, Any] | None = None,
         limit: int = RUNTIME_EVENT_LIMIT,
     ) -> None:
+        """Append a daemon runtime event and prune old events exceeding limit."""
         now = self._now_ts()
         payload_json = json.dumps(payload or {}, ensure_ascii=False, separators=(",", ":"))
         with self._lock, self._conn:
@@ -740,6 +772,7 @@ class SQLiteCache:
             )
 
     def list_runtime_events(self, limit: int = RUNTIME_EVENT_LIMIT) -> list[dict[str, Any]]:
+        """List recent daemon runtime events up to limit."""
         with self._lock:
             rows = self._conn.execute(
                 """
@@ -769,6 +802,7 @@ class SQLiteCache:
         return events
 
     def get_daemon_status(self) -> dict[str, Any]:
+        """Get combined daemon status payload including active progress and events."""
         now = self._now_ts()
         with self._lock:
             status = self._load_daemon_status_locked()
@@ -789,14 +823,13 @@ class SQLiteCache:
         return status
 
     def purge_expired(self) -> None:
+        """Purge expired JustWatch mapping and offer cache entries."""
         now = self._now_ts()
         with self._lock, self._conn:
             self._conn.execute("DELETE FROM jw_id_map WHERE expires_at <= ?", (now,))
-            self._conn.execute(
-                "DELETE FROM jw_offers_cache WHERE expires_at <= ?",
-                (now,),
-            )
+            self._conn.execute("DELETE FROM jw_offers_cache WHERE expires_at <= ?", (now,))
 
     def close(self) -> None:
+        """Close SQLite database connection."""
         with self._lock:
             self._conn.close()

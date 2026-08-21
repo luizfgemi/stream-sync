@@ -5,7 +5,7 @@ from typing import Any
 
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Query, status as http_status
 
-from .cache_sqlite import SQLiteCache
+from .database import SQLiteCache
 from .config import (
     API_CONFIG_FIELDS,
     READ_ONLY_CONFIG_FIELDS,
@@ -14,7 +14,7 @@ from .config import (
     reset_config_overrides,
     update_config_overrides,
 )
-from .radarr_client import RadarrClient
+from .radarr import RadarrClient
 from .snapshot import movie_snapshot_payload
 
 

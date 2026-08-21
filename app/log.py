@@ -1,31 +1,34 @@
+"""Logging configuration and setup for stream-sync."""
+
 from __future__ import annotations
 
 import logging
 import os
+import sys
 import time
-from pathlib import Path
+
+_LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 
 
 class DailyDateFileHandler(logging.Handler):
+    """Logging handler that rotates log files daily by date string."""
+
     def __init__(self, log_dir: str) -> None:
         super().__init__()
-        self._log_dir = Path(log_dir)
+        self._log_dir = os.path.abspath(log_dir)
         self._current_date: str | None = None
         self._delegate: logging.FileHandler | None = None
 
     def _today(self) -> str:
         return time.strftime("%Y-%m-%d")
 
-    def _build_path(self, day: str) -> Path:
-        return self._log_dir / f"stream-sync.{day}.log"
-
     def _switch_if_needed(self) -> None:
         day = self._today()
         if self._delegate is not None and self._current_date == day:
             return
 
-        path = self._build_path(day)
-        path.parent.mkdir(parents=True, exist_ok=True)
+        path = os.path.join(self._log_dir, f"stream-sync.{day}.log")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         new_delegate = logging.FileHandler(path, encoding="utf-8")
         if self.formatter is not None:
             new_delegate.setFormatter(self.formatter)
@@ -62,34 +65,45 @@ class DailyDateFileHandler(logging.Handler):
             super().close()
 
 
-def setup_logging(tz: str | None = None, log_dir: str | None = None) -> logging.Logger:
+def setup_logging(
+    tz: str | None = None,
+    log_dir: str | None = None,
+    level: int = logging.INFO,
+) -> logging.Logger:
+    """Configure root logger with console, timezone, and daily date file handlers.
+
+    Args:
+        tz: Optional timezone name (e.g. America/Sao_Paulo).
+        log_dir: Optional log output directory path.
+        level: Logging level (default INFO).
+
+    Returns:
+        Configured Logger instance.
+    """
     if tz:
         os.environ["TZ"] = tz
         if hasattr(time, "tzset"):
             time.tzset()
 
-    root = logging.getLogger()
-    root.setLevel(logging.INFO)
-    root.handlers.clear()
+    root_logger = logging.getLogger()
+    root_logger.setLevel(level)
+    root_logger.handlers.clear()
 
-    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    formatter = logging.Formatter(_LOG_FORMAT)
 
-    stream_handler = logging.StreamHandler()
-    stream_handler.setFormatter(formatter)
-    root.addHandler(stream_handler)
+    console = logging.StreamHandler(sys.stdout)
+    console.setFormatter(formatter)
+    root_logger.addHandler(console)
 
     if log_dir:
         try:
             file_handler = DailyDateFileHandler(log_dir)
             file_handler.setFormatter(formatter)
-            root.addHandler(file_handler)
+            root_logger.addHandler(file_handler)
         except Exception as exc:
-            logging.getLogger("app").warning(
-                "Could not initialize file logging in %s: %s",
-                log_dir,
-                exc,
-            )
+            logging.getLogger("app").warning("Could not initialize file logging in %s: %s", log_dir, exc)
 
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("arrapi").setLevel(logging.WARNING)
-    return logging.getLogger("app")
+
+    return logging.getLogger("stream-sync")

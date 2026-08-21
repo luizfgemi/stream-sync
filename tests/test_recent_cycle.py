@@ -94,12 +94,21 @@ class FakeCache:
     ) -> None:
         self.marked_states.append((radarr_id, status, int(delete_after_ts or 0)))
         if self.deletion_state is not None:
-            self.deletion_state = replace(
-                self.deletion_state,
-                last_status=status,
-                updated_at=updated_at,
-                delete_after_ts=int(delete_after_ts or self.deletion_state.delete_after_ts),
-            )
+            if hasattr(self.deletion_state, "model_copy"):
+                self.deletion_state = self.deletion_state.model_copy(
+                    update={
+                        "last_status": status,
+                        "updated_at": updated_at,
+                        "delete_after_ts": int(delete_after_ts or self.deletion_state.delete_after_ts),
+                    }
+                )
+            else:
+                self.deletion_state = replace(
+                    self.deletion_state,
+                    last_status=status,
+                    updated_at=updated_at,
+                    delete_after_ts=int(delete_after_ts or self.deletion_state.delete_after_ts),
+                )
 
     def upsert_movie_snapshots(
         self,
@@ -272,6 +281,8 @@ def make_recent_movie(**overrides: object) -> MovieState:
         in_cinemas=date.today().isoformat(),
         tags=[TagState(id=1, label="streaming-netflix")],
     )
+    if hasattr(movie, "model_copy"):
+        return movie.model_copy(update=overrides)
     return replace(movie, **overrides)
 
 

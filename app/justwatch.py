@@ -1,3 +1,9 @@
+"""JustWatch streaming availability provider for stream-sync.
+
+Handles TMDB to JustWatch node resolution, offers fetching with request pacing,
+caching in SQLite, and service normalization.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -10,11 +16,25 @@ from typing import Any
 import requests
 from simplejustwatchapi.justwatch import offers_for_countries, search
 
-from .cache_sqlite import SQLiteCache
-from .types import JwLookupResult, JwService, LookupStatus, MovieState
+from app.database import SQLiteCache
+from app.schemas import JwLookupResult, JwService, LookupStatus, MovieState
+
+LOGGER = logging.getLogger("stream-sync.justwatch")
 
 
 class JustWatchProvider:
+    """Provider for querying JustWatch streaming availability with rate limiting.
+
+    Args:
+        cache: SQLite database cache manager.
+        country: Country ISO code (e.g. BR).
+        language: Language locale tag (e.g. pt-BR).
+        only_subscription: If True, only considers FLATRATE/SUBSCRIPTION monetization.
+        request_delay_seconds: Base delay in seconds between consecutive requests.
+        request_delay_jitter_seconds: Random jitter in seconds added to base delay.
+        stop_event: Threading stop event for graceful cancellation.
+    """
+
     def __init__(
         self,
         cache: SQLiteCache | None,
@@ -25,7 +45,7 @@ class JustWatchProvider:
         request_delay_jitter_seconds: float = 1.0,
         stop_event: threading.Event | None = None,
     ) -> None:
-        self._logger = logging.getLogger("app.justwatch")
+        self._logger = LOGGER
         self._cache = cache
         self._country = country.upper()
         self._language = language
@@ -41,6 +61,7 @@ class JustWatchProvider:
 
     @staticmethod
     def _unique_non_empty(values: list[str]) -> list[str]:
+        """Return deduplicated list of non-empty strings while maintaining order."""
         out: list[str] = []
         seen: set[str] = set()
         for value in values:
@@ -55,6 +76,7 @@ class JustWatchProvider:
         return out
 
     def _wait_before_request(self) -> None:
+        """Enforce request delay and jitter pacing between JustWatch API calls."""
         if self._request_delay_seconds <= 0 and self._request_delay_jitter_seconds <= 0:
             return
 
@@ -82,6 +104,7 @@ class JustWatchProvider:
     def lookup_movie(
         self, movie: MovieState, enabled_services: set[str] | None = None
     ) -> JwLookupResult:
+        """Lookup streaming availability for a movie in JustWatch."""
         if self._cache is None:
             raise RuntimeError("lookup_movie requires an initialized SQLite cache")
 
@@ -166,6 +189,7 @@ class JustWatchProvider:
         )
 
     def _fetch_payload_for_node(self, node_id: str) -> tuple[dict[str, Any] | None, Exception | None]:
+        """Fetch raw offers payload from JustWatch API for a node ID."""
         try:
             self._wait_before_request()
             raw = offers_for_countries(
@@ -188,6 +212,7 @@ class JustWatchProvider:
         previous_node_id: str,
         previous_error: str,
     ) -> JwLookupResult:
+        """Clear cached node mapping and retry JustWatch offers fetch."""
         if self._cache is None or movie.tmdb_id is None:
             return JwLookupResult(
                 status=LookupStatus.UNKNOWN,
@@ -234,6 +259,7 @@ class JustWatchProvider:
         )
 
     def list_country_services(self, country: str | None = None) -> list[JwService]:
+        """Fetch list of all available streaming packages for a country via GraphQL."""
         selected_country = (country or self._country).upper()
         query = """
 query GetPackages($country: Country!, $platform: Platform!) {
@@ -298,6 +324,7 @@ query GetPackages($country: Country!, $platform: Platform!) {
         return sorted(services_by_id.values(), key=lambda item: item.service_name.lower())
 
     def _resolve_node_id(self, movie: MovieState) -> str | None:
+        """Resolve JustWatch node ID for a movie using search fallback across countries."""
         tmdb_id = str(movie.tmdb_id)
 
         query_candidates = [movie.title]
@@ -351,6 +378,7 @@ query GetPackages($country: Country!, $platform: Platform!) {
         return None
 
     def _build_payload(self, offers_map: Any) -> dict[str, Any]:
+        """Convert raw offers response structure into internal JSON dictionary format."""
         if not isinstance(offers_map, dict):
             raise ValueError("Offers response is not an object")
 
@@ -382,6 +410,7 @@ query GetPackages($country: Country!, $platform: Platform!) {
     def _extract_services(
         self, payload: dict[str, Any] | None, enabled_services: set[str] | None = None
     ) -> list[JwService]:
+        """Filter and extract valid JwService DTOs from raw payload."""
         if payload is None:
             raise ValueError("Missing offers payload")
         offers = payload.get("offers")
@@ -430,11 +459,13 @@ query GetPackages($country: Country!, $platform: Platform!) {
 
     @staticmethod
     def normalize_service_id(value: str) -> str:
+        """Normalize service technical name string into lower_snake_case format."""
         normalized = re.sub(r"[^a-z0-9]+", "_", value.lower())
         return normalized.strip("_")
 
     @staticmethod
     def _service_name_from_id(service_id: str) -> str:
+        """Return human-friendly title string for known streaming service IDs."""
         known = {
             "amazonprimevideo": "Prime Video",
             "primevideo": "Prime Video",

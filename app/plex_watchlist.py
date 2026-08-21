@@ -35,6 +35,15 @@ def _safe_tag_part(value: str) -> str:
 
 
 class PlexWatchlistClient:
+    """Client for fetching and parsing user and friend Plex Watchlists.
+
+    Args:
+        token: Plex authentication token string.
+        token_file: Path to XML/JSON file containing Plex token.
+        include_friends: If True, fetches watchlists of shared Plex friends.
+        timeout_seconds: HTTP request timeout in seconds.
+    """
+
     def __init__(
         self,
         token: str = "",
@@ -251,6 +260,11 @@ class PlexWatchlistClient:
         return tmdb_id, tvdb_id
 
     def fetch_all(self) -> list[PlexWatchlistItem]:
+        """Fetch and aggregate all Plex Watchlist items for user and friends.
+
+        Returns:
+            List of aggregated PlexWatchlistItem DTOs.
+        """
         token = self._token()
         users_and_rows: list[tuple[str, list[dict[str, str]]]] = [
             (self._account_name(token), self._self_watchlist(token))
@@ -302,6 +316,11 @@ class PlexWatchlistClient:
         return output
 
     def protected_movie_details(self) -> dict[int, list[SeerrProtection]]:
+        """Fetch dictionary mapping TMDB IDs to protection records from Plex Watchlists.
+
+        Returns:
+            Dictionary mapping TMDB ID to list of SeerrProtection objects.
+        """
         protected: dict[int, list[SeerrProtection]] = {}
         for item in self.fetch_all():
             if item.media_type != "movie" or item.tmdb_id is None:

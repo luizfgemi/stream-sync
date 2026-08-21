@@ -1,3 +1,8 @@
+"""Servarr API client helper for Plex Watchlist synchronization into Radarr/Sonarr.
+
+Handles direct REST queries and payload submission to Radarr and Sonarr for Watchlist items.
+"""
+
 from __future__ import annotations
 
 import json
@@ -9,11 +14,19 @@ from typing import Any
 
 
 class ServarrClient:
+    """Client for generic Radarr/Sonarr API operations required by Watchlist sync.
+
+    Args:
+        url: Servarr application URL.
+        api_key: Servarr API authentication key.
+        service: Service identifier ('radarr' or 'sonarr').
+    """
+
     def __init__(self, url: str, api_key: str, service: str) -> None:
         self._url = url.rstrip("/")
         self._api_key = api_key
         self._service = service
-        self._logger = logging.getLogger(f"app.{service}.watchlist")
+        self._logger = logging.getLogger(f"stream-sync.{service}.watchlist")
 
     def _request(
         self,
@@ -21,6 +34,7 @@ class ServarrClient:
         path: str,
         payload: dict[str, Any] | None = None,
     ) -> Any:
+        """Execute HTTP request against Servarr API endpoint."""
         data = json.dumps(payload).encode("utf-8") if payload is not None else None
         request = urllib.request.Request(
             f"{self._url}/api/v3{path}",
@@ -49,6 +63,7 @@ class ServarrClient:
         return json.loads(raw)
 
     def _tag_ids(self, users: tuple[str, ...]) -> list[int]:
+        """Fetch or create tag IDs for Watchlist users."""
         tags = self._request("GET", "/tag")
         by_label = {
             str(tag.get("label", "")).lower(): int(tag["id"])
@@ -74,6 +89,7 @@ class ServarrClient:
         root_folder: str,
         search: bool,
     ) -> str:
+        """Add movie to Radarr from TMDB ID with user tags."""
         movies = self._request("GET", "/movie")
         if any(int(movie.get("tmdbId") or 0) == tmdb_id for movie in movies):
             return "exists"
@@ -108,6 +124,7 @@ class ServarrClient:
         root_folder: str,
         search: bool,
     ) -> str:
+        """Add TV series to Sonarr from TVDB ID with user tags."""
         series_rows = self._request("GET", "/series")
         if any(int(series.get("tvdbId") or 0) == tvdb_id for series in series_rows):
             return "exists"
