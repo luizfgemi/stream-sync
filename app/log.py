@@ -65,6 +65,16 @@ class DailyDateFileHandler(logging.Handler):
             super().close()
 
 
+class HealthCheckFilter(logging.Filter):
+    """Filter out GET /api/v1/health logs with 200 OK from uvicorn.access logger."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.name != "uvicorn.access":
+            return True
+        message = record.getMessage()
+        return not ("GET /api/v1/health" in message and " 200" in message)
+
+
 def setup_logging(
     tz: str | None = None,
     log_dir: str | None = None,
@@ -90,15 +100,18 @@ def setup_logging(
     root_logger.handlers.clear()
 
     formatter = logging.Formatter(_LOG_FORMAT)
+    health_filter = HealthCheckFilter()
 
     console = logging.StreamHandler(sys.stdout)
     console.setFormatter(formatter)
+    console.addFilter(health_filter)
     root_logger.addHandler(console)
 
     if log_dir:
         try:
             file_handler = DailyDateFileHandler(log_dir)
             file_handler.setFormatter(formatter)
+            file_handler.addFilter(health_filter)
             root_logger.addHandler(file_handler)
         except Exception as exc:
             logging.getLogger("app").warning("Could not initialize file logging in %s: %s", log_dir, exc)
