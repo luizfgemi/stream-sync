@@ -19,6 +19,14 @@ class WatchlistSyncStats:
 
 
 def sync_plex_watchlists(config: Config) -> WatchlistSyncStats:
+    """Synchronize user and friend Plex Watchlist items into Radarr and Sonarr instances.
+
+    Args:
+        config: Application configuration instance.
+
+    Returns:
+        WatchlistSyncStats containing counts of added, skipped, existing, and failed items.
+    """
     logger = logging.getLogger("app.watchlist_sync")
     plex = PlexWatchlistClient(
         token=config.plex_token,
