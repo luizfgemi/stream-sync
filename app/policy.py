@@ -97,20 +97,90 @@ def evaluate_movie_policy(
             reason=f"JustWatch lookup error: {lookup_result.error_message}",
         )
 
-    current_streaming_labels = [tag.label for tag in movie.streaming_tags]
+STREAMING_TAG_PREFIX = "streaming_"
+STREAMING_TAG_PREFIX_SAFE = "streaming-"
+
+
+def _current_streaming_ids(movie: MovieState) -> list[str]:
+    """Extract canonical streaming service IDs (with underscores) from movie streaming tags."""
+    output: list[str] = []
+    for tag in movie.streaming_tags:
+        label = tag.label.lower()
+        if label.startswith(STREAMING_TAG_PREFIX):
+            output.append(label[len(STREAMING_TAG_PREFIX) :])
+        elif label.startswith(STREAMING_TAG_PREFIX_SAFE):
+            raw = label[len(STREAMING_TAG_PREFIX_SAFE) :]
+            output.append(raw.replace("-", "_"))
+    return output
+
+
+def evaluate_movie_policy(
+    movie: MovieState,
+    lookup_result: JwLookupResult,
+    grace_months: int = 0,
+    seerr_protection: list[SeerrProtection] | None = None,
+    search_cooldown_passed: bool = True,
+) -> MovieDecision:
+    """Evaluate business policy rules for a movie and return decision structure."""
+    if movie.has_tag("favorite"):
+        return MovieDecision(
+            skip=True,
+            reason="Favorite tag active",
+            target_monitored=True,
+            desired_streaming_labels=[],
+            trigger_search=not movie.monitored and not movie.has_file and search_cooldown_passed,
+            search_reason="favorite_unmonitored" if not movie.monitored and not movie.has_file else None,
+        )
+
+    if seerr_protection:
+        source_labels = sorted(list({p.source for p in seerr_protection}))
+        return MovieDecision(
+            skip=True,
+            reason=f"Protected by Seerr/Watchlist ({', '.join(source_labels)})",
+            target_monitored=True,
+            desired_streaming_labels=[],
+            trigger_search=not movie.monitored and not movie.has_file and search_cooldown_passed,
+            search_reason="seerr_protected_unmonitored" if not movie.monitored and not movie.has_file else None,
+        )
+
+    if is_recent_theatrical_release(movie.in_cinemas, grace_months):
+        return MovieDecision(
+            skip=True,
+            reason=f"Recent theatrical release (released {movie.in_cinemas})",
+            target_monitored=True,
+            desired_streaming_labels=[],
+            trigger_search=not movie.monitored and not movie.has_file and search_cooldown_passed,
+            search_reason="recent_release_unmonitored" if not movie.monitored and not movie.has_file else None,
+        )
+
+    if lookup_result.status in (LookupStatus.UNKNOWN, LookupStatus.SCHEMA_ERROR):
+        return MovieDecision(
+            skip=True,
+            reason=f"JustWatch lookup error: {lookup_result.error_message}",
+        )
+
+    current_ids = _current_streaming_ids(movie)
+    current_set = set(current_ids)
+    had_streaming = bool(current_set)
+
     is_available = lookup_result.status == LookupStatus.AVAILABLE
 
     if is_available:
-        desired_labels = sorted([f"streaming-{svc.service_id.replace('_', '-')}" for svc in lookup_result.services])
-        entering_services = [
-            svc for svc in lookup_result.services
-            if f"streaming-{svc.service_id.replace('_', '-')}" not in current_streaming_labels
+        desired_ids = sorted({service.service_id for service in lookup_result.services})
+        desired_set = set(desired_ids)
+        desired_labels = [
+            f"{STREAMING_TAG_PREFIX_SAFE}{svc_id.replace('_', '-')}"
+            for svc_id in desired_ids
         ]
-        current_svc_ids = {label.replace("streaming-", "").replace("streaming_", "").replace("_", "-") for label in current_streaming_labels}
-        new_svc_ids = {svc.service_id.replace("_", "-") for svc in lookup_result.services}
-        leaving_svc_ids = sorted(list(current_svc_ids - new_svc_ids))
 
-        should_update = (current_streaming_labels != desired_labels) or movie.monitored
+        by_id = {svc.service_id: svc for svc in lookup_result.services}
+        entering_services = [
+            by_id[svc_id] for svc_id in desired_ids
+            if svc_id not in current_set and svc_id in by_id
+        ]
+        leaving_svc_ids = sorted(list(current_set - desired_set))
+
+        should_update = (current_set != desired_set) or movie.monitored
         return MovieDecision(
             skip=False,
             reason=f"Available on allowed streaming: {', '.join(svc.service_name for svc in lookup_result.services)}",
@@ -122,9 +192,9 @@ def evaluate_movie_policy(
         )
 
     # Unavailable on allowed streaming
-    current_svc_ids = {label.replace("streaming-", "").replace("streaming_", "").replace("_", "-") for label in current_streaming_labels}
-    should_update = bool(current_streaming_labels) or not movie.monitored
-    trigger_search = (not movie.monitored or not current_streaming_labels) and not movie.has_file and search_cooldown_passed
+    should_update = had_streaming or not movie.monitored
+    trigger_search = (had_streaming or not movie.monitored) and not movie.has_file and search_cooldown_passed
+    search_reason = "left_streaming" if had_streaming else "unmonitored_outside_whitelist"
 
     return MovieDecision(
         skip=False,
@@ -133,8 +203,8 @@ def evaluate_movie_policy(
         desired_streaming_labels=[],
         target_monitored=True,
         trigger_search=trigger_search,
-        search_reason="left_streaming" if trigger_search else None,
-        leaving_service_ids=sorted(list(current_svc_ids)),
+        search_reason=search_reason if trigger_search else None,
+        leaving_service_ids=sorted(current_ids),
     )
 
 # Backward compatibility alias

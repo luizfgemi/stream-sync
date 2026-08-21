@@ -72,3 +72,25 @@ class FindingsFixesTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+    def test_never_in_streaming_unmonitored_outside_whitelist_search_reason(self) -> None:
+        movie = MovieState(movie_id=1, title="Test", path="/path", monitored=False, has_file=False, tags=[])
+        jw_result = JwLookupResult(status=LookupStatus.UNAVAILABLE, services=[])
+        decision = evaluate_movie_policy(movie, jw_result)
+        self.assertTrue(decision.trigger_search)
+        self.assertEqual(decision.search_reason, "unmonitored_outside_whitelist")
+
+    def test_canonical_service_id_leaving_service_name(self) -> None:
+        movie = MovieState(
+            movie_id=1,
+            title="Test",
+            path="/path",
+            monitored=False,
+            has_file=False,
+            tags=[TagState(id=1, label="streaming-primevideo-withads")],
+        )
+        jw_result = JwLookupResult(status=LookupStatus.UNAVAILABLE, services=[])
+        decision = evaluate_movie_policy(movie, jw_result)
+        self.assertEqual(decision.leaving_service_ids, ["primevideo_withads"])
+        self.assertEqual(decision.search_reason, "left_streaming")
