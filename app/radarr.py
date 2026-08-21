@@ -1,14 +1,22 @@
+"""Radarr API integration client for stream-sync.
+
+Handles movie queries, tag creation, monitoring status toggles, automatic searches,
+and favorite tag management via Radarr API.
+"""
+
 from __future__ import annotations
 
 import logging
 from typing import Iterable
 
 from arrapi import ArrException, Invalid, RadarrAPI
+from app.schemas import MovieState, TagState
 
-from .types import MovieState, TagState
+LOGGER = logging.getLogger("stream-sync.radarr")
 
 
 def _dedupe_keep_order(values: Iterable[int]) -> list[int]:
+    """Deduplicate an iterable of integers while preserving original order."""
     output: list[int] = []
     seen: set[int] = set()
     for value in values:
@@ -20,6 +28,7 @@ def _dedupe_keep_order(values: Iterable[int]) -> list[int]:
 
 
 def _optional_str_attr(obj: object, *names: str) -> str | None:
+    """Extract first non-None string attribute from an object among candidate names."""
     for name in names:
         value = getattr(obj, name, None)
         if value is not None:
@@ -28,15 +37,24 @@ def _optional_str_attr(obj: object, *names: str) -> str | None:
 
 
 def _tag_ids_from_movie_obj(movie_obj: object) -> list[int]:
+    """Extract deduplicated tag ID list from a Radarr movie object."""
     return _dedupe_keep_order(getattr(movie_obj, "tagsIds", []) or [])
 
 
 class RadarrClient:
+    """Client wrapper for Radarr REST API interaction.
+
+    Args:
+        url: Radarr instance base URL.
+        api_key: Radarr API authentication key.
+    """
+
     def __init__(self, url: str, api_key: str) -> None:
-        self._logger = logging.getLogger("app.radarr")
+        self._logger = LOGGER
         self._api = RadarrAPI(url, api_key)
 
     def _get_tag_maps(self) -> tuple[dict[int, str], dict[str, int]]:
+        """Fetch all Radarr tags and build ID-to-label and label-to-ID mappings."""
         id_to_label: dict[int, str] = {}
         label_to_id: dict[str, int] = {}
         for tag in self._api.all_tags():
@@ -45,6 +63,7 @@ class RadarrClient:
         return id_to_label, label_to_id
 
     def list_movies(self) -> list[MovieState]:
+        """Fetch all movies from Radarr and map them to MovieState DTOs."""
         id_to_label, _ = self._get_tag_maps()
         output: list[MovieState] = []
 
@@ -80,6 +99,7 @@ class RadarrClient:
         return output
 
     def _ensure_tag_ids(self, labels: list[str]) -> list[int]:
+        """Get tag IDs for specified labels, creating missing tags in Radarr as needed."""
         _, label_to_id = self._get_tag_maps()
         desired_ids: list[int] = []
         for label in labels:
@@ -94,6 +114,7 @@ class RadarrClient:
         return _dedupe_keep_order(desired_ids)
 
     def set_monitored(self, movie_id: int, monitored: bool) -> bool:
+        """Update monitored status for a movie in Radarr if it differs."""
         movie_obj = self._api.get_movie(movie_id=movie_id)
         current_monitored = bool(getattr(movie_obj, "monitored", False))
         if current_monitored == monitored:
@@ -108,6 +129,7 @@ class RadarrClient:
         return True
 
     def get_movie_state(self, movie_id: int) -> MovieState:
+        """Fetch current MovieState DTO for a specific Radarr movie ID."""
         id_to_label, _ = self._get_tag_maps()
         movie = self._api.get_movie(movie_id=movie_id)
         tag_ids = _dedupe_keep_order(getattr(movie, "tagsIds", []) or [])
@@ -137,6 +159,7 @@ class RadarrClient:
         )
 
     def set_favorite(self, movie_id: int, favorite: bool) -> MovieState:
+        """Add or remove favorite tag on a movie in Radarr."""
         favorite_ids = self._ensure_tag_ids(["favorite"])
         favorite_id = favorite_ids[0]
         movie_obj = self._api.get_movie(movie_id=movie_id)
@@ -170,6 +193,7 @@ class RadarrClient:
         desired_streaming_labels: list[str],
         monitored: bool,
     ) -> bool:
+        """Reconcile streaming tags and monitored state for a movie in Radarr."""
         desired_streaming_ids = self._ensure_tag_ids(desired_streaming_labels)
         movie_obj = self._api.get_movie(movie_id=movie.movie_id)
         id_to_label, _ = self._get_tag_maps()
@@ -197,6 +221,7 @@ class RadarrClient:
         return True
 
     def trigger_search(self, movie_id: int) -> str:
+        """Trigger an automated movie search command in Radarr."""
         attempts = [
             ("MoviesSearch", {"movieIds": [movie_id]}),
             ("MovieSearch", {"movieIds": [movie_id]}),
@@ -227,6 +252,7 @@ class RadarrClient:
         ) from last_error
 
     def trigger_rescan(self, movie_id: int) -> str | None:
+        """Trigger a rescan/refresh command in Radarr for a specific movie ID."""
         attempts = [
             ("RescanMovie", {"movieId": movie_id}),
             ("RescanMovies", {"movieIds": [movie_id]}),

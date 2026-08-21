@@ -7,9 +7,9 @@ from typing import Protocol
 
 from ..database import SQLiteCache
 from ..config import Config
-from ..justwatch_provider import JustWatchProvider
+from ..justwatch import JustWatchProvider
 from ..notifier import Notifier
-from ..radarr_client import RadarrClient
+from ..radarr import RadarrClient
 from ..seerr_client import SeerrClient
 from ..types import CycleStats, MovieState
 from .deletion_service import DeletionService

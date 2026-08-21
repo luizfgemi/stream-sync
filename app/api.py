@@ -14,7 +14,7 @@ from .config import (
     reset_config_overrides,
     update_config_overrides,
 )
-from .radarr_client import RadarrClient
+from .radarr import RadarrClient
 from .snapshot import movie_snapshot_payload
 
 

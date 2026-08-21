@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 
 from ..database import SQLiteCache
-from ..radarr_client import RadarrClient
+from ..radarr import RadarrClient
 from ..snapshot import movie_snapshot_payload
 
 

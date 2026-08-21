@@ -7,9 +7,9 @@ from dataclasses import dataclass
 
 from ..database import SQLiteCache
 from ..config import Config
-from ..justwatch_provider import JustWatchProvider
+from ..justwatch import JustWatchProvider
 from ..notifier import build_notifier
-from ..radarr_client import RadarrClient
+from ..radarr import RadarrClient
 from ..seerr_client import SeerrClient
 from .deletion_service import DeletionService
 from .sync_cycle_service import (
@@ -30,7 +30,7 @@ class DaemonDependencies:
     seerr: SeerrClient | None = None
 
 
-def justwatch_provider_settings(config: Config) -> tuple[object, ...]:
+def justwatch_settings(config: Config) -> tuple[object, ...]:
     return (
         config.jw_country,
         config.jw_language,

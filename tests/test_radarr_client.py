@@ -11,7 +11,7 @@ arrapi_stub.Invalid = Exception
 arrapi_stub.RadarrAPI = object
 sys.modules.setdefault("arrapi", arrapi_stub)
 
-from app.radarr_client import RadarrClient
+from app.radarr import RadarrClient
 from app.types import MovieState, TagState
 
 

@@ -10,12 +10,12 @@ from collections import defaultdict
 
 from .database import SQLiteCache
 from .config import Config
-from .justwatch_provider import JustWatchProvider
+from .justwatch import JustWatchProvider
 from .log import setup_logging
 from .notifier import Notifier, build_notifier, service_name_from_id
 from .policy import evaluate_movie
 from .recent_release import is_within_theatrical_release_grace
-from .radarr_client import RadarrClient
+from .radarr import RadarrClient
 from .seerr_client import SeerrClient
 from .plex_watchlist import PlexWatchlistClient
 from .snapshot import movie_snapshot_payload
@@ -1347,7 +1347,7 @@ def _run_list_services_mode(config: Config, justwatch: JustWatchProvider) -> Non
         print(f"{service.service_name} | {service.service_id}")
 
 
-def _build_radarr_client_with_retry(config: Config, logger: logging.Logger) -> RadarrClient:
+def _build_radarr_with_retry(config: Config, logger: logging.Logger) -> RadarrClient:
     last_error: Exception | None = None
     for attempt in range(1, config.radarr_init_max_retries + 1):
         try:
@@ -1370,7 +1370,7 @@ def _build_radarr_client_with_retry(config: Config, logger: logging.Logger) -> R
     ) from last_error
 
 
-def _justwatch_provider_settings(config: Config) -> tuple[object, ...]:
+def _justwatch_settings(config: Config) -> tuple[object, ...]:
     return (
         config.jw_country,
         config.jw_language,
@@ -1380,7 +1380,7 @@ def _justwatch_provider_settings(config: Config) -> tuple[object, ...]:
     )
 
 
-def _build_justwatch_provider(
+def _build_justwatch(
     config: Config,
     cache: SQLiteCache | None,
     stop_event: threading.Event,
@@ -1525,7 +1525,7 @@ def main() -> None:
     )
 
     if config.mode == "list_services":
-        justwatch = _build_justwatch_provider(config, None, stop_event)
+        justwatch = _build_justwatch(config, None, stop_event)
         _run_list_services_mode(config, justwatch)
         return
 
@@ -1545,14 +1545,14 @@ def main() -> None:
         }
     )
     cache.append_runtime_event("daemon_started", {"startedAt": int(time.time())})
-    justwatch = _build_justwatch_provider(config, cache, stop_event)
-    justwatch_settings = _justwatch_provider_settings(config)
+    justwatch = _build_justwatch(config, cache, stop_event)
+    justwatch_settings = _justwatch_settings(config)
 
     if config.mode != "daemon":
         cache.close()
         raise ValueError(f"Invalid MODE: {config.mode}")
 
-    radarr = _build_radarr_client_with_retry(config, logger)
+    radarr = _build_radarr_with_retry(config, logger)
     seerr = _build_seerr_client(config, logger)
     plex_watchlists = _build_plex_watchlist_client(config)
     _start_api_server(config, cache, radarr, logger)
@@ -1572,9 +1572,9 @@ def main() -> None:
                     {"error": str(exc)[:500]},
                 )
 
-            current_justwatch_settings = _justwatch_provider_settings(config)
+            current_justwatch_settings = _justwatch_settings(config)
             if current_justwatch_settings != justwatch_settings:
-                justwatch = _build_justwatch_provider(config, cache, stop_event)
+                justwatch = _build_justwatch(config, cache, stop_event)
                 justwatch_settings = current_justwatch_settings
                 logger.info("JustWatch provider rebuilt after config change.")
 
