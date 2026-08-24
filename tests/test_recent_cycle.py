@@ -163,13 +163,11 @@ class FakeRadarr:
 
 class FakeJustWatch:
     def __init__(self, result: JwLookupResult | None = None) -> None:
-        self.result = result
+        self.result = result if result is not None else JwLookupResult(status=LookupStatus.UNAVAILABLE, services=[])
         self.calls = 0
 
     def lookup_movie(self, *_args: object, **_kwargs: object) -> JwLookupResult:
         self.calls += 1
-        if self.result is None:
-            raise AssertionError("movie should skip JustWatch")
         return self.result
 
 
@@ -336,7 +334,7 @@ class RecentCycleTests(unittest.TestCase):
         self.assertEqual(fake_radarr.updates, [(10, [], True)])
         self.assertTrue(fake_cache.deleted_deletion_state)
         self.assertTrue(fake_cache.cleared_countdown_day)
-        self.assertEqual(fake_justwatch.calls, 0)
+        self.assertEqual(fake_justwatch.calls, 1)
 
     def test_recent_theatrical_release_without_file_searches_when_released(self) -> None:
         stats, fake_cache, fake_radarr, _fake_justwatch = self.run_cycle(
@@ -366,7 +364,7 @@ class RecentCycleTests(unittest.TestCase):
             self.assertTrue(fake_cache.deleted_deletion_state)
             self.assertFalse(fake_cache.marked_states)
             self.assertFalse(fake_radarr.rescans)
-            self.assertEqual(fake_justwatch.calls, 0)
+            self.assertEqual(fake_justwatch.calls, 1)
 
     def test_recent_due_deletion_is_canceled_before_delete(self) -> None:
         with tempfile.TemporaryDirectory() as movie_path:
@@ -383,7 +381,7 @@ class RecentCycleTests(unittest.TestCase):
             self.assertTrue(fake_cache.deleted_deletion_state)
             self.assertFalse(fake_cache.marked_states)
             self.assertFalse(fake_radarr.rescans)
-            self.assertEqual(fake_justwatch.calls, 0)
+            self.assertEqual(fake_justwatch.calls, 1)
 
     def test_seerr_protected_due_deletion_is_canceled_and_skips_justwatch(self) -> None:
         with tempfile.TemporaryDirectory() as movie_path:
@@ -408,7 +406,7 @@ class RecentCycleTests(unittest.TestCase):
             self.assertTrue(fake_cache.cleared_countdown_day)
             self.assertFalse(fake_cache.marked_states)
             self.assertFalse(fake_radarr.rescans)
-            self.assertEqual(fake_justwatch.calls, 0)
+            self.assertEqual(fake_justwatch.calls, 1)
 
     def test_seerr_protected_without_file_searches_when_released(self) -> None:
         stats, fake_cache, fake_radarr, fake_justwatch = self.run_cycle(
@@ -426,7 +424,7 @@ class RecentCycleTests(unittest.TestCase):
         self.assertEqual(stats.search_triggered, 1)
         self.assertEqual(fake_radarr.searches, [10])
         self.assertEqual(fake_cache.search_next_allowed_set[0], 10)
-        self.assertEqual(fake_justwatch.calls, 0)
+        self.assertEqual(fake_justwatch.calls, 1)
 
     def test_snapshot_records_seerr_sources(self) -> None:
         stats, fake_cache, _fake_radarr, _fake_justwatch = self.run_cycle(

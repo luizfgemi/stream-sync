@@ -601,12 +601,15 @@ def _run_cycle(
                             radarr.trigger_search(movie.movie_id)
                             stats.search_triggered += 1
 
+                lookup = justwatch.lookup_movie(movie, enabled_services=allowed_services)
+                fav_services = lookup.services if lookup.status == LookupStatus.AVAILABLE else None
                 snapshot_rows.append(
                     movie_snapshot_payload(
                         movie,
                         ["favorite"],
                         int(time.time()),
                         deletion_state=cache.get_deletion_state(movie.movie_id),
+                        streaming_services=fav_services,
                     )
                 )
                 continue
@@ -705,12 +708,15 @@ def _run_cycle(
                             )
                             stats.search_triggered += 1
 
+                lookup = justwatch.lookup_movie(movie, enabled_services=allowed_services)
+                seerr_services = lookup.services if lookup.status == LookupStatus.AVAILABLE else None
                 snapshot_rows.append(
                     movie_snapshot_payload(
                         movie,
                         sorted(list({item.source for item in movie_protection})),
                         int(time.time()),
                         deletion_state=cache.get_deletion_state(movie.movie_id),
+                        streaming_services=seerr_services,
                         protection=movie_protection,
                     )
                 )
@@ -806,12 +812,15 @@ def _run_cycle(
                             )
                             stats.search_triggered += 1
 
+                lookup = justwatch.lookup_movie(movie, enabled_services=allowed_services)
+                recent_services = lookup.services if lookup.status == LookupStatus.AVAILABLE else None
                 snapshot_rows.append(
                     movie_snapshot_payload(
                         movie,
                         ["recent_theatrical"],
                         int(time.time()),
                         deletion_state=cache.get_deletion_state(movie.movie_id),
+                        streaming_services=recent_services,
                     )
                 )
                 continue

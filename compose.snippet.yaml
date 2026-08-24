@@ -2,6 +2,7 @@ services:
   stream-sync:
     build:
       context: ${BASE_PATH}/stream-sync-repo
+      dockerfile: Containerfile
     container_name: stream-sync
     environment:
       - TZ=${TZ}
